@@ -4,7 +4,7 @@ My own FlightAware.
  - for RPi Zero2W, using "Blinka" and dump1090-fa.
 
 Things to do
-    - object persistence
+    - how to 'expire' an airplane?
     - status line
 
 """
@@ -95,10 +95,28 @@ def load_image(display, image_path):
 
 
 def show_blip(display_object, image_object, x, y, color_tuple):
-    temp_image = map_image_obj.copy()
+
+    temp_image = image_object.copy()
     draw = ImageDraw.Draw(temp_image)
     draw.rectangle((x, y, x+5, y+5), fill=color_tuple)
     display_object.image(temp_image)
+
+
+def show_airplanes(display, image, airplane_dict):
+
+    temp_image = image.copy()
+    draw = ImageDraw.Draw(temp_image)
+
+    for ap in airplane_dict.values():
+
+        ll = geo.lat_long(ap.latitude, ap.longitude)
+        x, y = m.map_lat_long_to_x_y(ll)
+        print(f"  -> ({x}, {y})")
+
+        if x >= 0 and x <= WIDTH and y >= 0 and y <= HEIGHT:
+            draw.rectangle((x, y, x+5, y+5), fill=(0,0,0))
+
+    display.image(temp_image)
 
 
 ############### start of code
@@ -123,44 +141,58 @@ ul = geo.lat_long(47.7, -122.5)
 lr = geo.lat_long(47.5, -122.0)
 m  = geo.mapper(ul, lr, (200, 200))
 
+airplanes = dict()
 
-with py1090.Connection() as connection:
-    print("Connection OK....")
-    for line in connection:
-        # print(line)
-        msg = py1090.Message.from_string(line)
-        if msg.message_type == 'MSG':
-            all_messages += 1
-            if msg.latitude is not None and msg.longitude is not None:
-                latlon_messages += 1
-                print(f"{msg.message_type=}")
-                print(f"  {msg.callsign=}")
-                print(f"  {msg.squawk=}")
-                print(f"  {msg.altitude=}")
-                print(f"  {msg.vertical_rate=}")
-                print(f"  {msg.latitude=}")
-                print(f"  {msg.longitude=}")
-                # print(f"  {msg.__dict__=}")
-                # print(f"- {latlon_messages} of {all_messages}")
+try:
 
-                ll = geo.lat_long(msg.latitude, msg.longitude)
-                x, y = m.map_lat_long_to_x_y(ll)
-                print(f"  -> ({x}, {y})")
+    with py1090.Connection() as connection:
+        print("Connection OK....")
+        for line in connection:
+            # print(line)
+            msg = py1090.Message.from_string(line)
+            if msg.message_type == 'MSG':
+                all_messages += 1
 
-                if x >= 0 and x <= WIDTH and y >= 0 and y <= HEIGHT:
-                    in_area_messages += 1
-                    show_blip(display_obj, map_image_obj, x, y, color)
-                    print(f"- {in_area_messages} of {all_messages}")
+                if not None in [msg.hexident, msg.latitude, msg.longitude]:
 
-#     event = keys.events.get
-#     if event is None:
-#         # event will be None if nothing has happened. Do background stuff.
-#         pass
-#     else:
-#         print(event)
-#         if event.key_number == 0:
-#             x += 2
-#         if event.key_number == 1:
-#             y += 2
-#         show_blip(display_obj, map_image_obj, x, y, color)
+                # if msg.latitude is not None and msg.longitude is not None:
 
+                    latlon_messages += 1
+
+                    # to see everthing, use this:
+                    # print(f"  {msg.__dict__=}")
+
+                    # print(f"{msg.message_type=}")
+                    # print(f"  {msg.callsign=}")
+                    # print(f"  {msg.squawk=}")
+                    # print(f"  {msg.altitude=}")
+                    # print(f"  {msg.vertical_rate=}")
+                    # print(f"  {msg.latitude=}")
+                    # print(f"  {msg.longitude=}")
+                    
+                    # print(f"- {latlon_messages} of {all_messages}")
+
+                    hi = msg.hexident
+                    if airplanes.get(hi) is None:
+                        print(f"New airplane {hi}")
+                    airplanes[hi] = msg
+                    # print(f" {len(airplanes)} {airplanes=}")
+
+                    show_airplanes(display_obj, map_image_obj, airplanes)
+
+
+        event = keys.events.get
+        if event is None:
+            # event will be None if nothing has happened. Do background stuff.
+            pass
+        else:
+            print(event)
+            # if event.key_number == 0:
+            #     x += 2
+            # if event.key_number == 1:
+            #     y += 2
+            # show_blip(display_obj, map_image_obj, x, y, color)
+
+
+except ConnectionRefusedError:
+    print("Can't connect!")
