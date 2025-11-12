@@ -102,24 +102,41 @@ def show_blip(display_object, image_object, x, y, color_tuple):
     display_object.image(temp_image)
 
 
+AP_TIME_EXPIRE = 5 # seconds
+
 def show_airplanes(display, image, airplane_dict):
+    """dict of ap_info"""
 
     temp_image = image.copy()
     draw = ImageDraw.Draw(temp_image)
 
+    hex_to_delete = []
     for ap in airplane_dict.values():
 
-        ll = geo.lat_long(ap.latitude, ap.longitude)
-        x, y = m.map_lat_long_to_x_y(ll)
-        print(f"  -> ({x}, {y})")
-
-        if x >= 0 and x <= WIDTH and y >= 0 and y <= HEIGHT:
-            draw.rectangle((x, y, x+5, y+5), fill=(0,0,0))
-
+        t_last = ap.last_seen_time
+        if t_last < time.monotonic() - AP_TIME_EXPIRE:
+            # print(f" EXPIRE {a_info.dump_msg.__dict__}")
+            print(f"Expire {ap.dump_msg.hexident}")
+            hex_to_delete.append(ap.dump_msg.hexident)
+        else:
+            ll = geo.lat_long(ap.dump_msg.latitude, ap.dump_msg.longitude)
+            x, y = m.map_lat_long_to_x_y(ll)
+            if x >= 0 and x <= WIDTH and y >= 0 and y <= HEIGHT:
+                draw.rectangle((x, y, x+5, y+5), fill=(0,0,0))
     display.image(temp_image)
 
+    # now delete from list
+    for h in hex_to_delete:
+        del airplane_dict[h]
 
-############### start of code
+
+class ap_info():
+    def __init__(self, dump_msg, last_seen_time):
+        self.dump_msg = dump_msg
+        self.last_seen_time = last_seen_time
+
+
+############### start of main code
 
 display_obj = setup_hardware()
 map_image_obj = load_image(display_obj, "SEA-240x240.png")
@@ -133,7 +150,7 @@ y = 10
 color = (0)
 
 all_messages = 0
-latlon_messages = 0
+ok_messages = 0
 in_area_messages = 0
 
 # set up geographical mapper
@@ -154,10 +171,7 @@ try:
                 all_messages += 1
 
                 if not None in [msg.hexident, msg.latitude, msg.longitude]:
-
-                # if msg.latitude is not None and msg.longitude is not None:
-
-                    latlon_messages += 1
+                    ok_messages += 1
 
                     # to see everthing, use this:
                     # print(f"  {msg.__dict__=}")
@@ -170,12 +184,13 @@ try:
                     # print(f"  {msg.latitude=}")
                     # print(f"  {msg.longitude=}")
                     
-                    # print(f"- {latlon_messages} of {all_messages}")
+                    # print(f"- {ok_messages} of {all_messages}")
 
                     hi = msg.hexident
                     if airplanes.get(hi) is None:
                         print(f"New airplane {hi}")
-                    airplanes[hi] = msg
+                    airplanes[hi] = ap_info(msg, time.monotonic())
+
                     # print(f" {len(airplanes)} {airplanes=}")
 
                     show_airplanes(display_obj, map_image_obj, airplanes)
@@ -183,7 +198,7 @@ try:
 
         event = keys.events.get
         if event is None:
-            # event will be None if nothing has happened. Do background stuff.
+            # event will be None if nothing has happened. Do background stuff?
             pass
         else:
             print(event)
