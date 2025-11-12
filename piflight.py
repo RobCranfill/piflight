@@ -1,15 +1,29 @@
 """
 My own FlightAware.
 (c)2025 rob cranfill
- - for RPi Zero2W, using "Blinka" and dump1090-fa.  
+ - for RPi Zero2W, using "Blinka" and dump1090-fa.
+
+Things to do
+    - object persistence
+    - status line
+
 """
 
+import time
+
+# adafruit libs
+from adafruit_rgb_display import st7789
 import board
 import digitalio
-from PIL import Image, ImageDraw
-from adafruit_rgb_display import st7789
-import time
 import keypad
+from PIL import Image, ImageDraw
+
+# 3rd party libs
+import py1090
+
+# our libs
+import geo
+
 
 WIDTH = 240
 HEIGHT = 240
@@ -87,20 +101,11 @@ def show_blip(display_object, image_object, x, y, color_tuple):
     display_object.image(temp_image)
 
 
-# keeping and re-using the draw object here didn't work. fine.
+############### start of code
+
 display_obj = setup_hardware()
 map_image_obj = load_image(display_obj, "SEA-240x240.png")
 display_obj.image(map_image_obj)
-
-
-# while True:
-#     for x in range(20, 200):
-#         mess_with_image = map_image_obj.copy()
-#         draw = ImageDraw.Draw(mess_with_image)
-#         draw.rectangle((x, 100, x+5, 105), fill=(255, 0, 0))
-#         display_obj.image(mess_with_image)
-#         time.sleep(.05)
-
 
 keys = keypad.Keys((board.D23,board.D24), value_when_pressed=False, pull=True)
 
@@ -109,13 +114,53 @@ y = 10
 
 color = (0)
 
-while True:
-    event = keys.events.get()
-    if event is None:
-        # event will be None if nothing has happened. Do background stuff.
-        pass
-    else:
-        print(event)
-        show_blip(display_obj, map_image_obj, x, y, color)
-        x += 2
+all_messages = 0
+latlon_messages = 0
+in_area_messages = 0
+
+# set up geographical mapper
+ul = geo.lat_long(47.7, -122.5)
+lr = geo.lat_long(47.5, -122.0)
+m  = geo.mapper(ul, lr, (200, 200))
+
+
+with py1090.Connection() as connection:
+    print("Connection OK....")
+    for line in connection:
+        # print(line)
+        msg = py1090.Message.from_string(line)
+        if msg.message_type == 'MSG':
+            all_messages += 1
+            if msg.latitude is not None and msg.longitude is not None:
+                latlon_messages += 1
+                print(f"{msg.message_type=}")
+                print(f"  {msg.callsign=}")
+                print(f"  {msg.squawk=}")
+                print(f"  {msg.altitude=}")
+                print(f"  {msg.vertical_rate=}")
+                print(f"  {msg.latitude=}")
+                print(f"  {msg.longitude=}")
+                # print(f"  {msg.__dict__=}")
+                # print(f"- {latlon_messages} of {all_messages}")
+
+                ll = geo.lat_long(msg.latitude, msg.longitude)
+                x, y = m.map_lat_long_to_x_y(ll)
+                print(f"  -> ({x}, {y})")
+
+                if x >= 0 and x <= WIDTH and y >= 0 and y <= HEIGHT:
+                    in_area_messages += 1
+                    show_blip(display_obj, map_image_obj, x, y, color)
+                    print(f"- {in_area_messages} of {all_messages}")
+
+#     event = keys.events.get
+#     if event is None:
+#         # event will be None if nothing has happened. Do background stuff.
+#         pass
+#     else:
+#         print(event)
+#         if event.key_number == 0:
+#             x += 2
+#         if event.key_number == 1:
+#             y += 2
+#         show_blip(display_obj, map_image_obj, x, y, color)
 

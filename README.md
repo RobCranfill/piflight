@@ -9,4 +9,5 @@ Some sort of PiAware-like thing. Not sure where I'm headed.
 * Software
   * Adafruit 'Blinka' libraries
   * Python Imaging Library
+  * py1090 (standard lib via pip3)
 
