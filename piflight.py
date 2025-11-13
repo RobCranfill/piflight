@@ -4,7 +4,6 @@ My own FlightAware.
  - for RPi Zero2W, using "Blinka" and dump1090-fa.
 
 Things to do
-    - how to 'expire' an airplane?
     - status line
 
 """
@@ -16,7 +15,7 @@ from adafruit_rgb_display import st7789
 import board
 import digitalio
 import keypad
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 # 3rd party libs
 import py1090
@@ -27,6 +26,9 @@ import geo
 
 WIDTH = 240
 HEIGHT = 240
+
+FONT_ARIAL20 = ImageFont.truetype(r'fonts/arial.ttf', 20) 
+
 
 def setup_hardware():
 
@@ -66,7 +68,6 @@ def setup_hardware():
 
     return disp
 
-
 def load_image(display, image_path):
 
     image = Image.open(image_path)
@@ -93,7 +94,6 @@ def load_image(display, image_path):
 
     return image
 
-
 def show_blip(display_object, image_object, x, y, color_tuple):
 
     temp_image = image_object.copy()
@@ -102,10 +102,23 @@ def show_blip(display_object, image_object, x, y, color_tuple):
     display_object.image(temp_image)
 
 
-AP_TIME_EXPIRE = 5 # seconds
+STATUS_Y = 220
+
+def show_status(display_object, image_object, text):
+    """This *does* modifiy the origianal image."""
+
+    draw = ImageDraw.Draw(image_object)
+
+    # black-out area
+    draw.rectangle((0, STATUS_Y, WIDTH, HEIGHT), fill=0)
+    draw.text((5, STATUS_Y), text,
+            fill=None, font=FONT_ARIAL20, anchor=None, spacing=0, align="left")    
+
+
+AP_TIME_EXPIRE = 15 # seconds
 
 def show_airplanes(display, image, airplane_dict):
-    """dict of ap_info"""
+    """Also expire a/c dict; dict of ap_info"""
 
     temp_image = image.copy()
     draw = ImageDraw.Draw(temp_image)
@@ -115,7 +128,6 @@ def show_airplanes(display, image, airplane_dict):
 
         t_last = ap.last_seen_time
         if t_last < time.monotonic() - AP_TIME_EXPIRE:
-            # print(f" EXPIRE {a_info.dump_msg.__dict__}")
             print(f"Expire {ap.dump_msg.hexident}")
             hex_to_delete.append(ap.dump_msg.hexident)
         else:
@@ -123,14 +135,19 @@ def show_airplanes(display, image, airplane_dict):
             x, y = m.map_lat_long_to_x_y(ll)
             if x >= 0 and x <= WIDTH and y >= 0 and y <= HEIGHT:
                 draw.rectangle((x, y, x+5, y+5), fill=(0,0,0))
+
+    show_status(display, image, f"{len(airplane_dict)-len(hex_to_delete)} aircraft")
+
     display.image(temp_image)
 
     # now delete from list
     for h in hex_to_delete:
         del airplane_dict[h]
 
+    return len(airplane_dict)
 
 class ap_info():
+    """The a/p info, and the last time we got data for this a/p."""
     def __init__(self, dump_msg, last_seen_time):
         self.dump_msg = dump_msg
         self.last_seen_time = last_seen_time
@@ -158,12 +175,16 @@ ul = geo.lat_long(47.7, -122.5)
 lr = geo.lat_long(47.5, -122.0)
 m  = geo.mapper(ul, lr, (200, 200))
 
+# Keep and paint this list of a/c.
 airplanes = dict()
 
-try:
 
+try:
     with py1090.Connection() as connection:
         print("Connection OK....")
+        time.sleep(2)
+        show_status(display_obj, map_image_obj, "Connection OK....")
+
         for line in connection:
             # print(line)
             msg = py1090.Message.from_string(line)
@@ -176,16 +197,6 @@ try:
                     # to see everthing, use this:
                     # print(f"  {msg.__dict__=}")
 
-                    # print(f"{msg.message_type=}")
-                    # print(f"  {msg.callsign=}")
-                    # print(f"  {msg.squawk=}")
-                    # print(f"  {msg.altitude=}")
-                    # print(f"  {msg.vertical_rate=}")
-                    # print(f"  {msg.latitude=}")
-                    # print(f"  {msg.longitude=}")
-                    
-                    # print(f"- {ok_messages} of {all_messages}")
-
                     hi = msg.hexident
                     if airplanes.get(hi) is None:
                         print(f"New airplane {hi}")
@@ -193,8 +204,8 @@ try:
 
                     # print(f" {len(airplanes)} {airplanes=}")
 
-                    show_airplanes(display_obj, map_image_obj, airplanes)
-
+                    n_aps = show_airplanes(display_obj, map_image_obj, airplanes)
+                    # show_status(display_obj, map_image_obj, arial20, f"{n_aps} airplanes")
 
         event = keys.events.get
         if event is None:
