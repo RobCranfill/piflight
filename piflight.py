@@ -4,8 +4,8 @@ My own FlightAware.
  - for RPi Zero2W, using "Blinka" and dump1090-fa.
 
 Things to do
-    - status line
-
+    - better count of current a/c
+    - color blip according to a/c alt?
 """
 
 import time
@@ -114,6 +114,23 @@ def show_status(display_object, image_object, text):
     draw.text((5, STATUS_Y), text,
             fill=None, font=FONT_ARIAL20, anchor=None, spacing=0, align="left")    
 
+COLOR_LOW = (255, 0, 0)
+COLOR_MED = (0, 255, 0)
+COLOR_HIGH = (255, 0, 0)
+
+COLOR_LOW = (0,0,0)
+COLOR_MED = (0,0,0)
+# COLOR_HIGH = (0,0,0)
+
+def get_color_for_altitude(alt):
+
+    if alt is None:
+        return (0,0,0)
+    if alt < 4000:
+        return COLOR_LOW
+    if alt < 10000:
+        return COLOR_MED
+    return COLOR_HIGH
 
 AP_TIME_EXPIRE = 15 # seconds
 
@@ -123,35 +140,47 @@ def show_airplanes(display, image, airplane_dict):
     temp_image = image.copy()
     draw = ImageDraw.Draw(temp_image)
 
-    hex_to_delete = []
+    # can't modify a list we are iterating,
+    # so keep a list of ones to remove when we are done.
+    #
+    keys_to_delete = []
+    visible_ac = 0
     for ap in airplane_dict.values():
 
         t_last = ap.last_seen_time
         if t_last < time.monotonic() - AP_TIME_EXPIRE:
             print(f"Expire {ap.dump_msg.hexident}")
-            hex_to_delete.append(ap.dump_msg.hexident)
+            keys_to_delete.append(ap.dump_msg.hexident)
         else:
             ll = geo.lat_long(ap.dump_msg.latitude, ap.dump_msg.longitude)
             x, y = m.map_lat_long_to_x_y(ll)
             if x >= 0 and x <= WIDTH and y >= 0 and y <= HEIGHT:
-                draw.rectangle((x, y, x+5, y+5), fill=(0,0,0))
+                visible_ac += 1
+                c = get_color_for_altitude(ap.dump_msg.altitude)
+                # c = (0,0,0)
+                print(f"  {ap} @ {ap.dump_msg.altitude} -> {c} @ {x},{y}")
+                draw.rectangle((x, y, x+5, y+5), fill=c)
+            else:
+                print(f"  {ap} is offscreen at {ap.dump_msg.latitude}, {ap.dump_msg.longitude}")
 
-    show_status(display, image, f"{len(airplane_dict)-len(hex_to_delete)} aircraft")
+    # show_status(display, image, f"{len(airplane_dict)-len(keys_to_delete)} aircraft")
+    show_status(display, image, f"{visible_ac} aircraft")
 
     display.image(temp_image)
 
-    # now delete from list
-    for h in hex_to_delete:
-        del airplane_dict[h]
+    # now delete expired planes from list
+    for k in keys_to_delete:
+        del airplane_dict[k]
 
-    return len(airplane_dict)
+    print(f" =--> {list(airplane_dict.keys())}")
 
 class ap_info():
     """The a/p info, and the last time we got data for this a/p."""
     def __init__(self, dump_msg, last_seen_time):
         self.dump_msg = dump_msg
         self.last_seen_time = last_seen_time
-
+    def __str__(self):
+        return f"{self.dump_msg.hexident}"
 
 ############### start of main code
 
@@ -181,13 +210,20 @@ airplanes = dict()
 
 try:
     with py1090.Connection() as connection:
-        print("Connection OK....")
-        time.sleep(2)
+
+        print("dump1090 connection OK....")
         show_status(display_obj, map_image_obj, "Connection OK....")
 
         for line in connection:
             # print(line)
-            msg = py1090.Message.from_string(line)
+
+            # Happens occasionally
+            try:
+                msg = py1090.Message.from_string(line)
+            except IndexError:
+                print("**** Error parsing message! Continuing....")
+                continue
+
             if msg.message_type == 'MSG':
                 all_messages += 1
 
@@ -204,21 +240,21 @@ try:
 
                     # print(f" {len(airplanes)} {airplanes=}")
 
-                    n_aps = show_airplanes(display_obj, map_image_obj, airplanes)
-                    # show_status(display_obj, map_image_obj, arial20, f"{n_aps} airplanes")
+                    show_airplanes(display_obj, map_image_obj, airplanes)
 
-        event = keys.events.get
-        if event is None:
-            # event will be None if nothing has happened. Do background stuff?
-            pass
-        else:
-            print(event)
-            # if event.key_number == 0:
-            #     x += 2
-            # if event.key_number == 1:
-            #     y += 2
-            # show_blip(display_obj, map_image_obj, x, y, color)
 
+            event = keys.events.get()
+            if event is None:
+                # event will be None if nothing has happened. Do background stuff?
+                pass
+            else:
+                print(event)
+                # if event.key_number == 0:
+                #     do_something()
+                # if event.key_number == 1:
+                #     do_something_else()
 
 except ConnectionRefusedError:
-    print("Can't connect!")
+    print("Can't connect! Is dump1090 running?")
+except KeyboardInterrupt:
+    print("\nOK, fine!")
