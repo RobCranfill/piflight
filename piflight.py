@@ -23,6 +23,7 @@ import py1090
 # our libs
 import geo
 
+BACKLIGHT_PIN = board.D22
 
 WIDTH = 240
 HEIGHT = 240
@@ -53,7 +54,7 @@ def setup_hardware():
     )
 
     # Turn on the backlight
-    backlight = digitalio.DigitalInOut(board.D26)
+    backlight = digitalio.DigitalInOut(BACKLIGHT_PIN)
     backlight.switch_to_output()
     backlight.value = True
 
@@ -67,6 +68,11 @@ def setup_hardware():
     disp.image(image)
 
     return disp
+
+def backlight_off():
+    backlight = digitalio.DigitalInOut(BACKLIGHT_PIN)
+    backlight.switch_to_output()
+    backlight.value = False
 
 def load_image(display, image_path):
 
@@ -258,3 +264,4 @@ except ConnectionRefusedError:
     print("Can't connect! Is dump1090 running?")
 except KeyboardInterrupt:
     print("\nOK, fine!")
+    backlight_off()
