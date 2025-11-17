@@ -1,0 +1,10 @@
+[Unit]
+Description=Piflight button watcher
+After=default.target
+
+[Service]
+ExecStart=/home/rob/proj/piflight/piflight/run_piflight.sh
+
+[Install]
+WantedBy=default.target
+
