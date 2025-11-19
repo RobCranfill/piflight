@@ -4,8 +4,7 @@ My own FlightAware.
  - for RPi Zero2W, using "Blinka" and dump1090-fa.
 
 Things to do
-    - better count of current a/c
-    - color blip according to a/c alt?
+    - color according to a/c alt? tried, doesn't work. :-/
 """
 
 import time
@@ -23,12 +22,32 @@ import py1090
 # our libs
 import geo
 
-BACKLIGHT_PIN = board.D22
+CALIB_LOCS = [geo.lat_long(47.655935, -122.327958)]
 
+
+# BLINK_COLORS = [(255,0,0), (0,255,0), (0,0,255)]
+BLINK_COLORS = [(255,0,0)] # just red is fine
+
+# constanty-global things
+BACKLIGHT_PIN = board.D22
 WIDTH = 240
 HEIGHT = 240
-
 FONT_ARIAL20 = ImageFont.truetype(r'fonts/arial.ttf', 20) 
+
+# Stop drawing a blip if we don't see it in this many seconds
+AP_TIME_EXPIRE = 15 
+
+
+class ap_info():
+    """The a/c dump1090 record, and the last time we got data for this a/c."""
+
+    def __init__(self, dump_msg, last_seen_time):
+        """dump_msg is the entire dump1090 record."""
+        self.dump_msg = dump_msg
+        self.last_seen_time = last_seen_time
+
+    def __str__(self):
+        return f"{self.dump_msg.hexident}"
 
 
 def setup_hardware():
@@ -69,6 +88,7 @@ def setup_hardware():
 
     return disp
 
+
 def backlight_off():
     backlight = digitalio.DigitalInOut(BACKLIGHT_PIN)
     backlight.switch_to_output()
@@ -100,18 +120,18 @@ def load_image(display, image_path):
 
     return image
 
-def show_blip(display_object, image_object, x, y, color_tuple):
+# def show_blip(display_object, image_object, x, y, color_tuple):
 
-    temp_image = image_object.copy()
-    draw = ImageDraw.Draw(temp_image)
-    draw.rectangle((x, y, x+5, y+5), fill=color_tuple)
-    display_object.image(temp_image)
+#     temp_image = image_object.copy()
+#     draw = ImageDraw.Draw(temp_image)
+#     draw.rectangle((x, y, x+5, y+5), fill=color_tuple)
+#     display_object.image(temp_image)
 
 
 STATUS_Y = 220
 
 def show_status(display_object, image_object, text):
-    """This *does* modifiy the origianal image."""
+    """This *does* modifiy the image_object."""
 
     draw = ImageDraw.Draw(image_object)
 
@@ -120,6 +140,8 @@ def show_status(display_object, image_object, text):
     draw.text((5, STATUS_Y), text,
             fill=None, font=FONT_ARIAL20, anchor=None, spacing=0, align="left")    
 
+
+# NOT WORKING :-/
 COLOR_LOW = (255, 0, 0)
 COLOR_MED = (0, 255, 0)
 COLOR_HIGH = (255, 0, 0)
@@ -138,15 +160,15 @@ def get_color_for_altitude(alt):
         return COLOR_MED
     return COLOR_HIGH
 
-AP_TIME_EXPIRE = 15 # seconds
 
-def show_airplanes(display, image, airplane_dict):
-    """Also expire a/c dict; dict of ap_info"""
+def show_airplanes(mapper, display, image, airplane_dict):
+    """Also expire a/c dict; airplane_dict is dict of [str, ap_info]"""
 
-    temp_image = image.copy()
-    draw = ImageDraw.Draw(temp_image)
+    # We will draw on a copy of the base map image.
+    new_image = image.copy()
+    draw = ImageDraw.Draw(new_image)
 
-    # can't modify a list we are iterating,
+    # can't modify a dict we are iterating,
     # so keep a list of ones to remove when we are done.
     #
     keys_to_delete = []
@@ -159,8 +181,8 @@ def show_airplanes(display, image, airplane_dict):
             keys_to_delete.append(ap.dump_msg.hexident)
         else:
             ll = geo.lat_long(ap.dump_msg.latitude, ap.dump_msg.longitude)
-            x, y = m.map_lat_long_to_x_y(ll)
-            if x >= 0 and x <= WIDTH and y >= 0 and y <= HEIGHT:
+            x, y = mapper.map_lat_long_to_x_y(ll)
+            if x >= 0 and x <= WIDTH and y >= 0 and y <= STATUS_Y: # don't paint in the status area
                 visible_ac += 1
                 c = get_color_for_altitude(ap.dump_msg.altitude)
                 # c = (0,0,0)
@@ -170,55 +192,69 @@ def show_airplanes(display, image, airplane_dict):
                 print(f"  {ap} is offscreen at {ap.dump_msg.latitude}, {ap.dump_msg.longitude}")
 
     # show_status(display, image, f"{len(airplane_dict)-len(keys_to_delete)} aircraft")
-    show_status(display, image, f"{visible_ac} aircraft")
 
-    display.image(temp_image)
+
+    # Also show calibration points
+    c = (0,0,255)
+    for ll in CALIB_LOCS:
+        x, y = mapper.map_lat_long_to_x_y(ll)
+        if True or x >= 0 and x <= WIDTH and y >= 0 and y <= STATUS_Y: # don't paint in the status area
+            print(f" CALIB_LOCS = {x},{y}")
+            draw.rectangle((x-4, y-4, x+4, y+4), fill=c)
+        else:
+            print(f" CALIB_LOCS {ll} is offscreen at {ll.lat}, {ll.long}")
+
+    # This draws onto the given image but doesn't display it yet.
+    show_status(display, new_image, f"{visible_ac} aircraft")
+
+    global last_blink
+    if last_blink < int(time.monotonic()):
+        color = BLINK_COLORS[last_blink % len(BLINK_COLORS)]
+        draw.rectangle((WIDTH-15, STATUS_Y+5, WIDTH, STATUS_Y+20), fill=color)
+        last_blink = int(time.monotonic())
+
+    # display it
+    display.image(new_image)
 
     # now delete expired planes from list
     for k in keys_to_delete:
         del airplane_dict[k]
+    # print(f" =--> {list(airplane_dict.keys())}")
 
-    print(f" =--> {list(airplane_dict.keys())}")
-
-class ap_info():
-    """The a/p info, and the last time we got data for this a/p."""
-    def __init__(self, dump_msg, last_seen_time):
-        self.dump_msg = dump_msg
-        self.last_seen_time = last_seen_time
-    def __str__(self):
-        return f"{self.dump_msg.hexident}"
 
 ############### start of main code
 
 display_obj = setup_hardware()
-map_image_obj = load_image(display_obj, "SEA-240x240.png")
-display_obj.image(map_image_obj)
+basemap_image = load_image(display_obj, "SEA-240x240.png")
+display_obj.image(basemap_image)
 
+# for if and when we use these:
 keys = keypad.Keys((board.D23,board.D24), value_when_pressed=False, pull=True)
-
-x = 10
-y = 10
-
-color = (0)
 
 all_messages = 0
 ok_messages = 0
 in_area_messages = 0
 
+last_blink = int(time.monotonic())
+
 # set up geographical mapper
-ul = geo.lat_long(47.7, -122.5)
-lr = geo.lat_long(47.5, -122.0)
-m  = geo.mapper(ul, lr, (200, 200))
+ul = geo.lat_long(47.715, -122.48)
+lr = geo.lat_long(47.48, -122.138)
+m  = geo.mapper(ul, lr, (240, 240))
+
+# for debug
+CALIB_LOCS.append(ul)
+CALIB_LOCS.append(lr)
 
 # Keep and paint this list of a/c.
 airplanes = dict()
-
 
 try:
     with py1090.Connection() as connection:
 
         print("dump1090 connection OK....")
-        show_status(display_obj, map_image_obj, "Connection OK....")
+        show_status(display_obj, basemap_image, "dump1090 connection OK....")
+        time.sleep(2)
 
         for line in connection:
             # print(line)
@@ -246,8 +282,7 @@ try:
 
                     # print(f" {len(airplanes)} {airplanes=}")
 
-                    show_airplanes(display_obj, map_image_obj, airplanes)
-
+                    show_airplanes(m, display_obj, basemap_image, airplanes)
 
             event = keys.events.get()
             if event is None:

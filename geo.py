@@ -32,26 +32,16 @@ class mapper:
         """Map the input geo loction to an (x,y) location."""
 
         lat_span = (self._lat_long_upper_left.lat - self._lat_long_lower_right.lat)
-        # print(f" {lat_span=}")
         lat_delta = self._lat_long_upper_left.lat - lat_long_pair.lat
-        # print(f" {lat_delta=}")
         lat_frac =  lat_delta / lat_span
         y = self._x_y_size[1] * lat_frac
-        # print(f" {lat_frac=} -> {y=}")
 
         long_span = (self._lat_long_upper_left.long - self._lat_long_lower_right.long)
         long_delta = self._lat_long_upper_left.long - lat_long_pair.long
         long_frac =  long_delta / long_span
         x = self._x_y_size[0] * long_frac
-        # print(f" {long_frac=} -> {x=}")
 
-        # print(f" {lat_long_pair} -> {(x, y)}")
-        # print(f" {lat_long_pair=} -> {(x, y)}")
-
-        # the above calc can result in a negative zero! fix!!
-        # but only if we return floats, which we don't.
-        # if x == -0:
-        #     x = 0
+        # print(f" map_lat_long_to_x_y {lat_long_pair} -> {(x,y)}")
 
         return (int(x), int(y))
 
