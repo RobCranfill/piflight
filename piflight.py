@@ -3,7 +3,8 @@ My own FlightAware.
 (c)2025 rob cranfill
  - for RPi Zero2W, using "Blinka" and dump1090-fa.
 
-Things to do
+Things to do/fix:
+    - when there are no messages, blinky thing doesn't blink.
     - color according to a/c alt? tried, doesn't work. :-/
 """
 
@@ -22,10 +23,10 @@ import py1090
 # our libs
 import geo
 
+SHOW_CALIBRATION_POINTS = False
 CALIB_LOCS = [geo.lat_long(47.655935, -122.327958)]
 
 
-# BLINK_COLORS = [(255,0,0), (0,255,0), (0,0,255)]
 BLINK_COLORS = [(255,0,0)] # just red is fine
 
 # constanty-global things
@@ -140,24 +141,25 @@ def show_status(display_object, image_object, text):
     draw.text((5, STATUS_Y), text,
             fill=None, font=FONT_ARIAL20, anchor=None, spacing=0, align="left")    
 
+# Low is black, high is blue, medium unused?
+COLOR_LOW = (0, 0, 0)
+COLOR_MED = (0, 255, 0)
+COLOR_HIGH = (0, 0, 255)
 
 # NOT WORKING :-/
-COLOR_LOW = (255, 0, 0)
-COLOR_MED = (0, 255, 0)
-COLOR_HIGH = (255, 0, 0)
-
-COLOR_LOW = (0,0,0)
-COLOR_MED = (0,0,0)
+# COLOR_LOW = (0,0,0)
+# COLOR_MED = (0,0,0)
 # COLOR_HIGH = (0,0,0)
 
 def get_color_for_altitude(alt):
 
     if alt is None:
-        return (0,0,0)
+        return (0,0,0) # ? actually we are ignoring a/c with no alt
+
     if alt < 4000:
         return COLOR_LOW
-    if alt < 10000:
-        return COLOR_MED
+    # if alt < 10000:
+    #     return COLOR_MED
     return COLOR_HIGH
 
 
@@ -186,23 +188,24 @@ def show_airplanes(mapper, display, image, airplane_dict):
                 visible_ac += 1
                 c = get_color_for_altitude(ap.dump_msg.altitude)
                 # c = (0,0,0)
-                print(f"  {ap} @ {ap.dump_msg.altitude} -> {c} @ {x},{y}")
+                # print(f"  {ap} @ {ap.dump_msg.altitude} -> {c} @ {x},{y}")
                 draw.rectangle((x, y, x+5, y+5), fill=c)
             else:
-                print(f"  {ap} is offscreen at {ap.dump_msg.latitude}, {ap.dump_msg.longitude}")
+                pass
+                # print(f"  {ap} is offscreen at {ap.dump_msg.latitude}, {ap.dump_msg.longitude}")
 
     # show_status(display, image, f"{len(airplane_dict)-len(keys_to_delete)} aircraft")
 
-
-    # Also show calibration points
-    c = (0,0,255)
-    for ll in CALIB_LOCS:
-        x, y = mapper.map_lat_long_to_x_y(ll)
-        if True or x >= 0 and x <= WIDTH and y >= 0 and y <= STATUS_Y: # don't paint in the status area
-            print(f" CALIB_LOCS = {x},{y}")
-            draw.rectangle((x-4, y-4, x+4, y+4), fill=c)
-        else:
-            print(f" CALIB_LOCS {ll} is offscreen at {ll.lat}, {ll.long}")
+    # Also show calibration points?
+    if SHOW_CALIBRATION_POINTS:
+        c = (0,0,255)
+        for ll in CALIB_LOCS:
+            x, y = mapper.map_lat_long_to_x_y(ll)
+            if True or x >= 0 and x <= WIDTH and y >= 0 and y <= STATUS_Y: # don't paint in the status area
+                print(f" CALIB_LOCS = {x},{y}")
+                draw.rectangle((x-4, y-4, x+4, y+4), fill=c)
+            else:
+                print(f" CALIB_LOCS {ll} is offscreen at {ll.lat}, {ll.long}")
 
     # This draws onto the given image but doesn't display it yet.
     show_status(display, new_image, f"{visible_ac} aircraft")
@@ -240,7 +243,7 @@ last_blink = int(time.monotonic())
 # set up geographical mapper
 ul = geo.lat_long(47.715, -122.48)
 lr = geo.lat_long(47.48, -122.138)
-m  = geo.mapper(ul, lr, (240, 240))
+mapper  = geo.mapper(ul, lr, (240, 240))
 
 # for debug
 CALIB_LOCS.append(ul)
@@ -248,6 +251,7 @@ CALIB_LOCS.append(lr)
 
 # Keep and paint this list of a/c.
 airplanes = dict()
+
 
 try:
     with py1090.Connection() as connection:
@@ -279,10 +283,9 @@ try:
                     if airplanes.get(hi) is None:
                         print(f"New airplane {hi}")
                     airplanes[hi] = ap_info(msg, time.monotonic())
-
                     # print(f" {len(airplanes)} {airplanes=}")
 
-                    show_airplanes(m, display_obj, basemap_image, airplanes)
+            show_airplanes(mapper, display_obj, basemap_image, airplanes)
 
             event = keys.events.get()
             if event is None:
