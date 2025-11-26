@@ -18,3 +18,18 @@ and a Rasperry Pi Zero.
 
 ## Installation
   * 
+
+## Installation of startup service
+To make the PiZero automatically run PiFlight at startup.
+
+### Service file
+* Edit piflight_startup.service so that the path for the 'cd' is correct, then do the following:
+```
+ sudo cp piflight_startup.service /lib/systemd/system/
+ sudo chmod 644 /lib/systemd/system/piflight_startup.service
+ sudo systemctl enable piflight_startup.service
+```
+### To stop the service
+You can kill or pkill it, or send a SIGINT or SIGTERM (same thing).
+
+

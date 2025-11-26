@@ -1,0 +1,10 @@
+[Unit]
+Description=piflight starter
+After=default.target
+
+[Service]
+ExecStart=/home/rob/proj/piflight/run_piflight.sh
+
+[Install]
+WantedBy=default.target
+
