@@ -4,11 +4,15 @@ My own FlightAware.
  - for RPi Zero2W, using "Blinka" and dump1090-fa.
 
 Things to do/fix:
+    - track/show callsigns?
     - when there are no messages, blinky thing doesn't blink.
     - color according to a/c alt? tried, doesn't work. :-/
 """
 
+import signal
+import sys
 import time
+import traceback
 
 # adafruit libs
 from adafruit_rgb_display import st7789
@@ -19,13 +23,14 @@ from PIL import Image, ImageDraw, ImageFont
 
 # 3rd party libs
 import py1090
+# import pyModeS as pms # not useful?
+
 
 # our libs
 import geo
 
 SHOW_CALIBRATION_POINTS = False
 CALIB_LOCS = [geo.lat_long(47.655935, -122.327958)]
-
 
 BLINK_COLORS = [(255,0,0)] # just red is fine
 
@@ -35,20 +40,35 @@ WIDTH = 240
 HEIGHT = 240
 FONT_ARIAL20 = ImageFont.truetype(r'fonts/arial.ttf', 20) 
 
-# Stop drawing a blip if we don't see it in this many seconds
-AP_TIME_EXPIRE = 15 
+# Stop drawing an a/c if we don't see it in this many seconds
+AP_TIME_EXPIRE = 15
 
 
 class ap_info():
-    """The a/c dump1090 record, and the last time we got data for this a/c."""
+    """The a/c dump1090 record, and the last time we got data for this a/c.
+    We keep a dictionary of this info, keyed on 'hexident' value. """
 
     def __init__(self, dump_msg, last_seen_time):
         """dump_msg is the entire dump1090 record."""
         self.dump_msg = dump_msg
         self.last_seen_time = last_seen_time
+        self.callsign = None
 
     def __str__(self):
-        return f"{self.dump_msg.hexident}"
+        return f"{self.dump_msg.hexident}/{self.callsign}"
+
+    def __repr__(self):
+        """Used by {x=} formatting!"""
+        return self.__str__()
+
+    def set_callsign(self, callsign):
+        self.callsign = callsign
+
+
+def signal_handler(sig, frame):
+    print(f"Signal {sig} caught; terminating.")
+    backlight_off()
+    sys.exit(0)
 
 
 def setup_hardware():
@@ -163,8 +183,9 @@ def get_color_for_altitude(alt):
     return COLOR_HIGH
 
 
-def show_airplanes(mapper, display, image, airplane_dict):
-    """Also expire a/c dict; airplane_dict is dict of [str, ap_info]"""
+def show_airplanes(mapper, display, image, airplane_dict, last_blink_time):
+    """Also expire a/c dict; airplane_dict is dict of [str, ap_info].
+    Return last blink time."""
 
     # We will draw on a copy of the base map image.
     new_image = image.copy()
@@ -179,7 +200,7 @@ def show_airplanes(mapper, display, image, airplane_dict):
 
         t_last = ap.last_seen_time
         if t_last < time.monotonic() - AP_TIME_EXPIRE:
-            print(f"Expire {ap.dump_msg.hexident}")
+            print(f"      Expire {ap.dump_msg.hexident}")
             keys_to_delete.append(ap.dump_msg.hexident)
         else:
             ll = geo.lat_long(ap.dump_msg.latitude, ap.dump_msg.longitude)
@@ -210,11 +231,12 @@ def show_airplanes(mapper, display, image, airplane_dict):
     # This draws onto the given image but doesn't display it yet.
     show_status(display, new_image, f"{visible_ac} aircraft")
 
-    global last_blink
-    if last_blink < int(time.monotonic()):
-        color = BLINK_COLORS[last_blink % len(BLINK_COLORS)]
+    if last_blink_time < int(time.monotonic()):
+
+        # FIXME: this cycles thru colors but we really only use one.
+        color = BLINK_COLORS[last_blink_time % len(BLINK_COLORS)]
         draw.rectangle((WIDTH-15, STATUS_Y+5, WIDTH, STATUS_Y+20), fill=color)
-        last_blink = int(time.monotonic())
+        last_blink_time = int(time.monotonic())
 
     # display it
     display.image(new_image)
@@ -222,84 +244,147 @@ def show_airplanes(mapper, display, image, airplane_dict):
     # now delete expired planes from list
     for k in keys_to_delete:
         del airplane_dict[k]
-    # print(f" =--> {list(airplane_dict.keys())}")
+
+    if len(keys_to_delete) > 0 and len(airplane_dict) > 0:
+        print(f"      =--> {airplane_dict}")
+
+    return last_blink_time
 
 
-############### start of main code
+def handle_button_0():
+    print("handle_button_0")
 
-display_obj = setup_hardware()
-basemap_image = load_image(display_obj, "SEA-240x240.png")
-display_obj.image(basemap_image)
-
-# for if and when we use these:
-keys = keypad.Keys((board.D23,board.D24), value_when_pressed=False, pull=True)
-
-all_messages = 0
-ok_messages = 0
-in_area_messages = 0
-
-last_blink = int(time.monotonic())
-
-# set up geographical mapper
-ul = geo.lat_long(47.715, -122.48)
-lr = geo.lat_long(47.48, -122.138)
-mapper  = geo.mapper(ul, lr, (240, 240))
-
-# for debug
-CALIB_LOCS.append(ul)
-CALIB_LOCS.append(lr)
-
-# Keep and paint this list of a/c.
-airplanes = dict()
+def handle_button_1():
+    print("handle_button_1")
 
 
-try:
-    with py1090.Connection() as connection:
+############### Main code. Re-run this on exceptions.
 
-        print("dump1090 connection OK....")
-        show_status(display_obj, basemap_image, "dump1090 connection OK....")
-        time.sleep(2)
+def main():
+    global keep_running
+    global print_once
 
-        for line in connection:
-            # print(line)
+    # for when we are run as a startup script
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
 
-            # Happens occasionally
-            try:
-                msg = py1090.Message.from_string(line)
-            except IndexError:
-                print("**** Error parsing message! Continuing....")
-                continue
+    display_obj = setup_hardware()
+    basemap_image = load_image(display_obj, "SEA-240x240.png")
+    display_obj.image(basemap_image)
 
-            if msg.message_type == 'MSG':
-                all_messages += 1
+    # for if and when we use these:
+    keys = keypad.Keys((board.D23,board.D24), value_when_pressed=False, pull=True)
 
-                if not None in [msg.hexident, msg.latitude, msg.longitude]:
-                    ok_messages += 1
+    all_messages = 0
+    ok_messages = 0
+    in_area_messages = 0
 
-                    # to see everthing, use this:
-                    # print(f"  {msg.__dict__=}")
+    last_blink = int(time.monotonic())
 
-                    hi = msg.hexident
-                    if airplanes.get(hi) is None:
-                        print(f"New airplane {hi}")
-                    airplanes[hi] = ap_info(msg, time.monotonic())
-                    # print(f" {len(airplanes)} {airplanes=}")
+    # set up geographical mapper
+    ul = geo.lat_long(47.715, -122.48)
+    lr = geo.lat_long(47.48, -122.138)
+    mapper  = geo.mapper(ul, lr, (240, 240))
 
-            show_airplanes(mapper, display_obj, basemap_image, airplanes)
+    # for debug
+    CALIB_LOCS.append(ul)
+    CALIB_LOCS.append(lr)
 
-            event = keys.events.get()
-            if event is None:
-                # event will be None if nothing has happened. Do background stuff?
-                pass
-            else:
-                print(event)
-                # if event.key_number == 0:
-                #     do_something()
-                # if event.key_number == 1:
-                #     do_something_else()
+    # Keep and paint this list of a/c.
+    airplanes = dict()
 
-except ConnectionRefusedError:
-    print("Can't connect! Is dump1090 running?")
-except KeyboardInterrupt:
-    print("\nOK, fine!")
-    backlight_off()
+    try:
+        with py1090.Connection() as connection:
+
+            print("dump1090 connection OK")
+
+            # FIXME
+            # show_status(display_obj, basemap_image, "dump1090 connection OK....")
+            # time.sleep(2)
+
+            for line in connection:
+                # print(line)
+
+                # Happens occasionally
+                try:
+                    msg = py1090.Message.from_string(line)
+                except IndexError:
+                    print("**** Error parsing message! Continuing....")
+                    continue
+ 
+                if msg.message_type == 'MSG':
+                    all_messages += 1
+
+                    # Only track a/c we have lat/long for.
+                    # FIXME: is this right?
+                    #
+                    if not None in [msg.hexident, msg.latitude, msg.longitude]:
+                        ok_messages += 1
+
+                        # to see everthing, use this:
+                        # print(f"  {msg.__dict__=}")
+
+                        if print_once:
+                            print(f"{msg.__dict__}")
+                            print_once = False
+
+                        hi = msg.hexident
+                        if airplanes.get(hi) is None:
+                            print(f"\nNew a/c {hi}")
+                            airplanes[hi] = ap_info(msg, time.monotonic())
+                            print(f"  {len(airplanes)} {airplanes=}")
+
+                    # should we only process a/c with lat/long, or all?
+                    # I think maybe often (always?) if we have lat/lon we DON"T have callsign!
+
+                    # # do we have a callsign for this a/c?
+                    # if msg.hexident is not None: # i've never seen this happen, but hey.
+                    ac = airplanes.get(msg.hexident)
+                    if ac is not None:
+                        cs = airplanes[msg.hexident].callsign
+                        # print(f"  (looking at old cs {cs})")
+                        if cs is None and msg.callsign is not None:
+                            cs = msg.callsign.strip()
+                            print(f"\n New callsign for {msg.hexident=}: {cs}")
+                            ac.set_callsign(cs)
+                            print(f"  a/c now {ac}")
+                            print(f" {airplanes=}")
+
+                # Show all aircraft, whether updated or not
+                last_blink = show_airplanes(mapper, display_obj, basemap_image, airplanes, last_blink)
+
+                # Look for user events.
+                #
+                event = keys.events.get()
+                if event is None:
+                    # event will be None if nothing has happened. Do background stuff?
+                    pass
+                else:
+                    print(event)
+                    if event.key_number == 0:
+                        handle_button_0()
+                    if event.key_number == 1:
+                        handle_button_0()
+
+    except ConnectionRefusedError:
+        print("Can't connect! Is dump1090 running?")
+        keep_running = False
+
+    except KeyboardInterrupt:
+        print("\nTerminating; turning off backlight.")
+        backlight_off()
+        keep_running = False
+
+
+# On my own, here we go:
+
+keep_running = True
+print_once = True
+
+while keep_running:
+    try:
+        main()
+    except Exception as e:
+        print("Caught top-level exception:")
+        traceback.print_exception(e)
+
