@@ -183,7 +183,7 @@ def get_color_for_altitude(alt):
     return COLOR_HIGH
 
 
-def show_airplanes(mapper, display, image, airplane_dict, last_blink_time):
+def show_airplanes(mapper, display, image, airplane_dict, last_blink_time, show_callsigns=False):
     """Also expire a/c dict; airplane_dict is dict of [str, ap_info].
     Return last blink time."""
 
@@ -211,9 +211,14 @@ def show_airplanes(mapper, display, image, airplane_dict, last_blink_time):
                 # c = (0,0,0)
                 # print(f"  {ap} @ {ap.dump_msg.altitude} -> {c} @ {x},{y}")
                 draw.rectangle((x, y, x+5, y+5), fill=c)
+
+                if show_callsigns and ap.callsign is not None:
+                    draw.text((x+6,y-2), ap.callsign, fill=(0,0,0), font=None)
+
             else:
                 pass
                 # print(f"  {ap} is offscreen at {ap.dump_msg.latitude}, {ap.dump_msg.longitude}")
+
 
     # show_status(display, image, f"{len(airplane_dict)-len(keys_to_delete)} aircraft")
 
@@ -238,7 +243,8 @@ def show_airplanes(mapper, display, image, airplane_dict, last_blink_time):
         draw.rectangle((WIDTH-15, STATUS_Y+5, WIDTH, STATUS_Y+20), fill=color)
         last_blink_time = int(time.monotonic())
 
-    # display it
+
+    # Finally display it all
     display.image(new_image)
 
     # now delete expired planes from list
@@ -251,11 +257,11 @@ def show_airplanes(mapper, display, image, airplane_dict, last_blink_time):
     return last_blink_time
 
 
-def handle_button_0():
-    print("handle_button_0")
+def handle_button_0(e):
+    print(f"handle_button_0: {e}")
 
-def handle_button_1():
-    print("handle_button_1")
+def handle_button_1(e):
+    print(f"handle_button_1: {e}")
 
 
 ############### Main code. Re-run this on exceptions.
@@ -282,8 +288,8 @@ def main():
     last_blink = int(time.monotonic())
 
     # set up geographical mapper
-    ul = geo.lat_long(47.715, -122.48)
-    lr = geo.lat_long(47.48, -122.138)
+    ul = geo.lat_long(47.715, -122.480)
+    lr = geo.lat_long(47.480, -122.138)
     mapper  = geo.mapper(ul, lr, (240, 240))
 
     # for debug
@@ -351,7 +357,7 @@ def main():
                             print(f" {airplanes=}")
 
                 # Show all aircraft, whether updated or not
-                last_blink = show_airplanes(mapper, display_obj, basemap_image, airplanes, last_blink)
+                last_blink = show_airplanes(mapper, display_obj, basemap_image, airplanes, last_blink, show_callsigns=True)
 
                 # Look for user events.
                 #
@@ -362,9 +368,9 @@ def main():
                 else:
                     print(event)
                     if event.key_number == 0:
-                        handle_button_0()
+                        handle_button_0(event)
                     if event.key_number == 1:
-                        handle_button_0()
+                        handle_button_0(event)
 
     except ConnectionRefusedError:
         print("Can't connect! Is dump1090 running?")
