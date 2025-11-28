@@ -4,7 +4,7 @@ My own FlightAware.
  - for RPi Zero2W, using "Blinka" and dump1090-fa.
 
 Things to do/fix:
-    - track/show callsigns?
+    - save
     - when there are no messages, blinky thing doesn't blink.
     - color according to a/c alt? tried, doesn't work. :-/
 """
@@ -29,6 +29,10 @@ import py1090
 # our libs
 import geo
 
+
+BACKGROUND_IMAGE_PATH = "SEA-240x240.png"
+# BACKGROUND_IMAGE_PATH = "OLY-240x240.png"
+
 SHOW_CALIBRATION_POINTS = False
 CALIB_LOCS = [geo.lat_long(47.655935, -122.327958)]
 
@@ -38,10 +42,15 @@ BLINK_COLORS = [(255,0,0)] # just red is fine
 BACKLIGHT_PIN = board.D22
 WIDTH = 240
 HEIGHT = 240
-FONT_ARIAL20 = ImageFont.truetype(r'fonts/arial.ttf', 20) 
+FONT_ARIAL_20 = ImageFont.truetype(r'fonts/arial.ttf', 20) 
 
 # Stop drawing an a/c if we don't see it in this many seconds
 AP_TIME_EXPIRE = 15
+
+# Key: ICAO hex id; value: callsign
+hex_to_callsign  = {}
+DROP_HEX_AFTER = 10 # if we haven't seen it in this many lookups
+show_callsigns_ = True
 
 
 class ap_info():
@@ -63,7 +72,8 @@ class ap_info():
 
     def set_callsign(self, callsign):
         self.callsign = callsign
-
+        hex_to_callsign[self.dump_msg.hexident] = callsign
+        print(f" {hex_to_callsign=}")
 
 def signal_handler(sig, frame):
     print(f"Signal {sig} caught; terminating.")
@@ -72,26 +82,27 @@ def signal_handler(sig, frame):
 
 
 def setup_hardware():
+    """Set up the display."""
 
-    # Configuration for CS and DC pins (these are PiTFT defaults):
+    # PiTFT defaults:
     cs_pin = digitalio.DigitalInOut(board.CE0)
     dc_pin = digitalio.DigitalInOut(board.D25)
     reset_pin = digitalio.DigitalInOut(board.D24)
 
-    # Config for display baudrate (default max is 24mhz):
+    # Config for display baudrate (default max is 24mhz)
     BAUDRATE = 24000000
 
-    # Setup SPI bus using hardware SPI:
+    # Setup SPI bus using hardware SPI
     spi = board.SPI()
 
-    # Create the display:
+    # Create the display
     disp = st7789.ST7789(
         spi,
         cs=cs_pin, dc=dc_pin, rst=reset_pin,
         baudrate=BAUDRATE,
         width=WIDTH, height=HEIGHT,
-        x_offset=0, y_offset=80
-    )
+        x_offset=0, y_offset=80 # y is a magic number!
+        )
 
     # Turn on the backlight
     backlight = digitalio.DigitalInOut(BACKLIGHT_PIN)
@@ -114,6 +125,7 @@ def backlight_off():
     backlight = digitalio.DigitalInOut(BACKLIGHT_PIN)
     backlight.switch_to_output()
     backlight.value = False
+
 
 def load_image(display, image_path):
 
@@ -159,7 +171,7 @@ def show_status(display_object, image_object, text):
     # black-out area
     draw.rectangle((0, STATUS_Y, WIDTH, HEIGHT), fill=0)
     draw.text((5, STATUS_Y), text,
-            fill=None, font=FONT_ARIAL20, anchor=None, spacing=0, align="left")    
+            fill=None, font=FONT_ARIAL_20, anchor=None, spacing=0, align="left")    
 
 # Low is black, high is blue, medium unused?
 COLOR_LOW = (0, 0, 0)
@@ -172,7 +184,7 @@ COLOR_HIGH = (0, 0, 255)
 # COLOR_HIGH = (0,0,0)
 
 def get_color_for_altitude(alt):
-
+    """Return color triplet for given altitude."""
     if alt is None:
         return (0,0,0) # ? actually we are ignoring a/c with no alt
 
@@ -258,10 +270,16 @@ def show_airplanes(mapper, display, image, airplane_dict, last_blink_time, show_
 
 
 def handle_button_0(e):
-    print(f"handle_button_0: {e}")
+    global show_callsigns_
+    # print(f"handle_button_0: {e}")
+    if e.pressed:
+        show_callsigns_ = not show_callsigns_
+        print(f"{show_callsigns_=}")
+
 
 def handle_button_1(e):
-    print(f"handle_button_1: {e}")
+    # print(f"handle_button_1: {e}")
+    pass
 
 
 ############### Main code. Re-run this on exceptions.
@@ -275,7 +293,7 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
 
     display_obj = setup_hardware()
-    basemap_image = load_image(display_obj, "SEA-240x240.png")
+    basemap_image = load_image(display_obj, BACKGROUND_IMAGE_PATH)
     display_obj.image(basemap_image)
 
     # for if and when we use these:
@@ -287,10 +305,18 @@ def main():
 
     last_blink = int(time.monotonic())
 
+
     # set up geographical mapper
+    # SEA
     ul = geo.lat_long(47.715, -122.480)
     lr = geo.lat_long(47.480, -122.138)
+   
+    # OLY
+    # ul = geo.lat_long(47.2197, -122.9440)
+    # lr = geo.lat_long(47.0008, -122.6262)
+
     mapper  = geo.mapper(ul, lr, (240, 240))
+
 
     # for debug
     CALIB_LOCS.append(ul)
@@ -357,7 +383,8 @@ def main():
                             print(f" {airplanes=}")
 
                 # Show all aircraft, whether updated or not
-                last_blink = show_airplanes(mapper, display_obj, basemap_image, airplanes, last_blink, show_callsigns=True)
+                last_blink = show_airplanes(
+                    mapper, display_obj, basemap_image, airplanes, last_blink, show_callsigns=show_callsigns_)
 
                 # Look for user events.
                 #
