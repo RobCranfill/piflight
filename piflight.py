@@ -25,10 +25,11 @@ from PIL import Image, ImageDraw, ImageFont
 import py1090
 # import pyModeS as pms # not useful?
 
-
 # our libs
 import geo
 
+
+################################################### prepratory bullshit
 
 BACKGROUND_IMAGE_PATH = "SEA-240x240.png"
 # BACKGROUND_IMAGE_PATH = "OLY-240x240.png"
@@ -42,16 +43,18 @@ BLINK_COLORS = [(255,0,0)] # just red is fine
 BACKLIGHT_PIN = board.D22
 WIDTH = 240
 HEIGHT = 240
-FONT_ARIAL_20 = ImageFont.truetype(r'fonts/arial.ttf', 20) 
+FONT_ARIAL_20 = ImageFont.truetype(r'fonts/arial.ttf', 20)
 
 # Stop drawing an a/c if we don't see it in this many seconds
 AP_TIME_EXPIRE = 15
 
-# Key: ICAO hex id; value: callsign
+# Key: ICAO hex id; value: callsign_info
 hex_to_callsign  = {}
-DROP_HEX_AFTER = 10 # if we haven't seen it in this many lookups
+DROP_CS_AFTER = 30 # if we haven't seen a given callsign in this many seconds
 show_callsigns_ = True
 
+
+################################################### classes
 
 class ap_info():
     """The a/c dump1090 record, and the last time we got data for this a/c.
@@ -72,8 +75,26 @@ class ap_info():
 
     def set_callsign(self, callsign):
         self.callsign = callsign
-        hex_to_callsign[self.dump_msg.hexident] = callsign
-        print(f" {hex_to_callsign=}")
+        hex_to_callsign[self.dump_msg.hexident] = callsign_info(callsign)
+        print(f" Callsigns: {hex_to_callsign}")
+
+
+class callsign_info():
+    """Similiarly, a record of a callsign and the last time we saw/used it.
+    To be put in a dictionary wherein the key is the ICAO number ("hexident")."""
+
+    def __init__(self, callsign):
+        self.callsign = callsign
+        self.last_seen = time.monotonic()
+
+    def __str__(self):
+        return f"{self.callsign} @{int(self.last_seen)}"
+
+    def __repr__(self):
+        return self.__str__()
+
+
+################################################### code
 
 def signal_handler(sig, frame):
     print(f"Signal {sig} caught; terminating.")
@@ -171,7 +192,7 @@ def show_status(display_object, image_object, text):
     # black-out area
     draw.rectangle((0, STATUS_Y, WIDTH, HEIGHT), fill=0)
     draw.text((5, STATUS_Y), text,
-            fill=None, font=FONT_ARIAL_20, anchor=None, spacing=0, align="left")    
+            fill=None, font=FONT_ARIAL_20, anchor=None, spacing=0, align="left")
 
 # Low is black, high is blue, medium unused?
 COLOR_LOW = (0, 0, 0)
@@ -224,8 +245,24 @@ def show_airplanes(mapper, display, image, airplane_dict, last_blink_time, show_
                 # print(f"  {ap} @ {ap.dump_msg.altitude} -> {c} @ {x},{y}")
                 draw.rectangle((x, y, x+5, y+5), fill=c)
 
-                if show_callsigns and ap.callsign is not None:
-                    draw.text((x+6,y-2), ap.callsign, fill=(0,0,0), font=None)
+                # if show_callsigns and ap.callsign is not None:
+                #     draw.text((x+6,y-2), ap.callsign, fill=(0,0,0), font=None)
+
+                # If the latest record for this a/c has a callsign, add/update it...
+                # FIXME: this could be inefficient/redundate if it's already in there?
+                #
+                if ap.callsign is not None:
+                    if hex_to_callsign.get(ap.dump_msg.hexident) is None:
+                        hex_to_callsign[ap.dump_msg.hexident] = callsign_info(ap.callsign)
+                        print(f"  Added callsign {ap.callsign}")
+
+                # ...Then see if it's in the table. (This will be a tad inefficient if we just got it.)
+                if show_callsigns:
+                    csi = hex_to_callsign.get(ap.dump_msg.hexident)
+                    if csi is not None: # shouldn't be
+                        cs = csi.callsign
+                        # print(f" ** found {cs=}")
+                        draw.text((x+6,y-2), cs, fill=(0,0,0), font=None)
 
             else:
                 pass
@@ -282,6 +319,17 @@ def handle_button_1(e):
     pass
 
 
+def tidy_callsigns():
+    keys_to_drop = []
+    for hi, ci in hex_to_callsign.items():
+        if time.monotonic() - DROP_CS_AFTER > ci.last_seen:
+            print(f" *** drop callsign {ci.callsign}")
+            keys_to_drop.append(hi)
+
+    for hi in keys_to_drop:
+        del hex_to_callsign[hi]
+
+
 ############### Main code. Re-run this on exceptions.
 
 def main():
@@ -310,7 +358,7 @@ def main():
     # SEA
     ul = geo.lat_long(47.715, -122.480)
     lr = geo.lat_long(47.480, -122.138)
-   
+
     # OLY
     # ul = geo.lat_long(47.2197, -122.9440)
     # lr = geo.lat_long(47.0008, -122.6262)
@@ -343,7 +391,7 @@ def main():
                 except IndexError:
                     print("**** Error parsing message! Continuing....")
                     continue
- 
+
                 if msg.message_type == 'MSG':
                     all_messages += 1
 
@@ -377,7 +425,7 @@ def main():
                         # print(f"  (looking at old cs {cs})")
                         if cs is None and msg.callsign is not None:
                             cs = msg.callsign.strip()
-                            print(f"\n New callsign for {msg.hexident=}: {cs}")
+                            print(f"\n  Got callsign for {msg.hexident=}: {cs}")
                             ac.set_callsign(cs)
                             print(f"  a/c now {ac}")
                             print(f" {airplanes=}")
@@ -399,6 +447,10 @@ def main():
                     if event.key_number == 1:
                         handle_button_0(event)
 
+                # clean up, else will grow forever
+                tidy_callsigns()
+
+
     except ConnectionRefusedError:
         print("Can't connect! Is dump1090 running?")
         keep_running = False
@@ -409,6 +461,8 @@ def main():
         keep_running = False
 
 
+
+################################################### No, really.
 # On my own, here we go:
 
 keep_running = True
