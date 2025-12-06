@@ -31,13 +31,14 @@ import geo
 
 ################################################### prepratory bullshit
 
-BACKGROUND_IMAGE_PATH = "SEA-240x240.png"
+BACKGROUND_IMAGE_PATH = "background.png"
+# BACKGROUND_IMAGE_PATH = "SEA-240x240.png"
 # BACKGROUND_IMAGE_PATH = "OLY-240x240.png"
 
 SHOW_CALIBRATION_POINTS = False
 CALIB_LOCS = [geo.lat_long(47.655935, -122.327958)]
 
-BLINK_COLORS = [(255,0,0)] # just red is fine
+BLINK_COLORS = [(255,0,0), (0,0,255)] # just red is fine
 
 # constanty-global things
 BACKLIGHT_PIN = board.D22
@@ -288,7 +289,13 @@ def show_airplanes(mapper, display, image, airplane_dict, last_blink_time, show_
     if last_blink_time < int(time.monotonic()):
 
         # FIXME: this cycles thru colors but we really only use one.
-        color = BLINK_COLORS[last_blink_time % len(BLINK_COLORS)]
+        # color = BLINK_COLORS[last_blink_time % len(BLINK_COLORS)]
+        
+        # blink one color (red) when we are showing callsigns, otherwise another color (blue)
+        bindex = 0 if show_callsigns_ else 1
+        color = BLINK_COLORS[bindex]
+        
+
         draw.rectangle((WIDTH-15, STATUS_Y+5, WIDTH, STATUS_Y+20), fill=color)
         last_blink_time = int(time.monotonic())
 

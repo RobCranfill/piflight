@@ -19,6 +19,28 @@ and a Rasperry Pi Zero.
 ## Installation
   * 
 
+## ConOps
+You define (see below) your geographical area of interest (via a latitude/longitude bounding box)
+and we display all aircraft with coodinates in that area. These blips are mapped to the LCD display,
+which is just a static image you grabbed from Google Maps or whatever.
+
+Since this project is displaying live over-the-air data received from the radio, your area of interest must be
+the area actually surrounding you - you can't just pick some random area of the world (like you can
+in, say, FlightRadar).
+
+
+## Customization
+To make this work for your location, you need to do two things: configure your latitude and longitude, 
+and create a background image to display.
+
+As described above, the code will use the area defined to map the locations of the aircraft onto the display.
+As I live near a major international airport, I picked a box about 15 miles on a side, centered over my house -
+your box might need to be bigger or smaller.
+
+You need to create a file "background.png" file, which needs to be compatible with Pillow's Image.open() method.
+I used an 8-bit sRGB PNG file, but other formats may work too. 
+
+
 ## Installation of startup service
 To make the PiZero automatically run PiFlight at startup.
 
