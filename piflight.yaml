@@ -1,0 +1,7 @@
+area:
+  upper_left:
+    lat:   47.715
+    lon: -122.480
+  lower_right:
+    lat:   47.480
+    lon: -122.138

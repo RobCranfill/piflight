@@ -13,11 +13,19 @@ and a Rasperry Pi Zero.
 * Software
   * Python 3.13 or so (3.13.5 used)
   * Adafruit 'Blinka' libraries
-  * Python Imaging Library
+  * Python Imaging Library ("Pillow")
   * py1090 (standard lib via pip3)
 
+
 ## Installation
-  * 
+  * Create a Python virtual envoronment ("venv") to install the Blinka libs to.
+    * See https://learn.adafruit.com/circuitpython-on-raspberrypi-linux
+  * Install other required Python libs into that venv:
+    * PIL, py1090
+  * Install dump1090-fa
+  * Install librtlsdr
+  * ??? raspi-spi-reassign.py
+
 
 ## ConOps
 You define (see below) your geographical area of interest (via a latitude/longitude bounding box)
@@ -37,8 +45,9 @@ As described above, the code will use the area defined to map the locations of t
 As I live near a major international airport, I picked a box about 15 miles on a side, centered over my house -
 your box might need to be bigger or smaller.
 
-You need to create a file "background.png" file, which needs to be compatible with Pillow's Image.open() method.
-I used an 8-bit sRGB PNG file, but other formats may work too. 
+You must create a "background.png" file, which needs to be compatible with Pillow's Image.open() method.
+I used an 8-bit sRGB PNG file, but other formats may work too. This needs to be 240 x 240 pixels, altho the lower
+20 pixels will be obscured by the status area onscreen.
 
 
 ## Installation of startup service
@@ -51,7 +60,7 @@ To make the PiZero automatically run PiFlight at startup.
  sudo chmod 644 /lib/systemd/system/piflight_startup.service
  sudo systemctl enable piflight_startup.service
 ```
+
 ### To stop the service
 You can kill or pkill it, or send a SIGINT or SIGTERM (same thing).
-
 

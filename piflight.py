@@ -28,6 +28,12 @@ import py1090
 # our libs
 import geo
 
+import yaml
+
+def read_config():
+    """Return ul, lr"""
+    config = yaml.safe_load(open("piflight.yaml"))
+
 
 ################################################### prepratory bullshit
 
