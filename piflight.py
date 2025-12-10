@@ -9,10 +9,13 @@ Things to do/fix:
     - color according to a/c alt? tried, doesn't work. :-/
 """
 
+import os
 import signal
 import sys
 import time
 import traceback
+import yaml
+
 
 # adafruit libs
 from adafruit_rgb_display import st7789
@@ -27,12 +30,6 @@ import py1090
 
 # our libs
 import geo
-
-import yaml
-
-def read_config():
-    """Return ul, lr"""
-    config = yaml.safe_load(open("piflight.yaml"))
 
 
 ################################################### prepratory bullshit
@@ -188,6 +185,28 @@ def load_image(display, image_path):
 #     draw.rectangle((x, y, x+5, y+5), fill=color_tuple)
 #     display_object.image(temp_image)
 
+
+
+def read_config():
+    """Return upper-left and lower-right coords; more?"""
+
+    # {'area': {'upper_left': {'lat': 47.715, 'lon': -122.48}, 'lower_right': {'lat': 47.48, 'lon': -122.138}}}
+
+    config = yaml.safe_load(open("piflight.yaml"))
+    try:
+        ul_lat = config["area"]["upper_left"]["lat"]
+        ul_lon = config["area"]["upper_left"]["lon"]
+        lr_lat = config["area"]["lower_right"]["lat"]
+        lr_lon = config["area"]["lower_right"]["lon"]
+
+        ul = geo.lat_long(ul_lat, ul_lon)
+        lr = geo.lat_long(lr_lat, lr_lon)
+
+        return ul, lr
+    except:
+        print("bad config file???")
+        return None
+    
 
 STATUS_Y = 220
 
@@ -349,6 +368,10 @@ def main():
     global keep_running
     global print_once
 
+
+    read_config()
+    
+    
     # for when we are run as a startup script
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -366,22 +389,12 @@ def main():
 
     last_blink = int(time.monotonic())
 
-
-    # set up geographical mapper
-    # SEA
-    ul = geo.lat_long(47.715, -122.480)
-    lr = geo.lat_long(47.480, -122.138)
-
-    # OLY
-    # ul = geo.lat_long(47.2197, -122.9440)
-    # lr = geo.lat_long(47.0008, -122.6262)
-
+    ul, lr = read_config()
     mapper  = geo.mapper(ul, lr, (240, 240))
 
-
-    # for debug
-    CALIB_LOCS.append(ul)
-    CALIB_LOCS.append(lr)
+    # # for debug
+    # CALIB_LOCS.append(ul)
+    # CALIB_LOCS.append(lr)
 
     # Keep and paint this list of a/c.
     airplanes = dict()
